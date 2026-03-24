@@ -27,6 +27,8 @@ Use Cases:
 - Contact info extraction (email, phone, social media)
 """
 
+from __future__ import annotations
+
 import logging
 from typing import List, Dict, Any, Optional, Tuple, Set
 from dataclasses import dataclass, field

@@ -43,6 +43,8 @@ Cost: FREE (all scikit-learn, open source)
 Author: Claude Opus 4.5
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 import math

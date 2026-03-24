@@ -37,6 +37,8 @@ Cost: FREE (all open-source)
 Author: Claude Opus 4.5
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import re
