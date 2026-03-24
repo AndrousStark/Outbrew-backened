@@ -1,0 +1,6 @@
+# Development & Testing Dependencies
+-r requirements.txt
+
+pytest==7.4.4
+pytest-asyncio==0.23.3
+fakeredis==2.21.1
