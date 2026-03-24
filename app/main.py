@@ -233,11 +233,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         f"[VALIDATION] Validation error on {request.method} {request.url.path}: {exc.errors()}"
     )
 
+    # Sanitize errors for JSON serialization (Pydantic v2 ctx may contain non-serializable objects)
+    clean_errors = []
+    for err in exc.errors():
+        clean_err = {
+            "type": err.get("type", ""),
+            "loc": err.get("loc", []),
+            "msg": err.get("msg", ""),
+        }
+        clean_errors.append(clean_err)
+
     return JSONResponse(
         status_code=422,
         content={
-            "detail": "Request validation failed",
-            "errors": exc.errors(),
+            "detail": clean_errors[0]["msg"] if len(clean_errors) == 1 else "Request validation failed",
+            "errors": clean_errors,
             "path": request.url.path,
         },
     )
