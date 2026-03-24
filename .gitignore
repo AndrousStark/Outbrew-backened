@@ -21,8 +21,9 @@ build/
 *.swp
 *.swo
 
-# Environment
+# Environment & Credentials
 .env
+.vps-credentials
 
 # Database
 *.db

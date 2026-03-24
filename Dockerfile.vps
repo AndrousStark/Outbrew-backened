@@ -1,0 +1,55 @@
+# =============================================================================
+# OUTBREW — SLIM VPS DOCKERFILE (Hetzner cx23: 2 CPU, 3.7GB RAM)
+# =============================================================================
+# Single-stage build, no spaCy, no gunicorn, ~200MB image
+# Connects to existing PostgreSQL and Redis on the VPS
+# =============================================================================
+
+FROM python:3.11-slim
+
+LABEL maintainer="Outbrew Team" \
+      description="Outbrew Backend API (VPS-optimized)"
+
+# Environment
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    APP_HOME=/app
+
+# Install only runtime deps (no build tools — psycopg2-binary is pre-built)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home appuser
+
+# Create app directories
+RUN mkdir -p ${APP_HOME}/storage ${APP_HOME}/exports ${APP_HOME}/logs && \
+    chown -R appuser:appuser ${APP_HOME}
+
+WORKDIR ${APP_HOME}
+
+# Install Python deps (slim requirements — no spaCy)
+COPY requirements.vps.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.vps.txt && \
+    rm -rf /root/.cache/pip
+
+# Copy application code
+COPY --chown=appuser:appuser ./app ./app
+COPY --chown=appuser:appuser ./alembic ./alembic
+COPY --chown=appuser:appuser ./alembic.ini ./alembic.ini
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -sf http://localhost:8001/health || exit 1
+
+# Single uvicorn worker — minimal RAM usage
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1", "--limit-concurrency", "50", "--timeout-keep-alive", "30"]

@@ -1,0 +1,57 @@
+version: "3.9"
+
+# =============================================================================
+# Outbrew Backend — VPS-Optimized Docker Compose
+# =============================================================================
+# API-only container. Connects to EXISTING PostgreSQL and Redis on the VPS.
+# Does NOT spin up its own database, cache, or nginx containers.
+#
+# Prerequisites on VPS:
+#   - PostgreSQL running on 127.0.0.1:5432 (unjynx-postgres)
+#   - Valkey/Redis running on 127.0.0.1:6379 (unjynx-valkey)
+#   - Nginx running on 80/443 (existing)
+#   - Database "outbrew" created in PostgreSQL
+#
+# Usage:
+#   docker compose -f docker-compose.vps.yml up -d
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: outbrew-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-outbrew_user}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB:-outbrew}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@host.docker.internal:6379/2
+      REDIS_ENABLED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./storage:/app/storage
+      - ./exports:/app/exports
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.75"
+        reservations:
+          memory: 128M
+          cpus: "0.25"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
