@@ -9,7 +9,10 @@ False Positive Rate: configurable (default: 0.01 = 1%)
 """
 
 import math
-import mmh3  # MurmurHash3 - fastest non-cryptographic hash
+try:
+    import mmh3  # MurmurHash3 - fastest non-cryptographic hash
+except ImportError:
+    mmh3 = None
 from typing import Set
 import struct
 

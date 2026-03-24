@@ -20,7 +20,10 @@ import os
 from functools import lru_cache
 from typing import Optional, List, Dict, Any
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 
 from app.core.config import settings
 

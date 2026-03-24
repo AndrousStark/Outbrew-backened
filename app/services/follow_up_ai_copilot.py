@@ -23,7 +23,10 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 
 from app.core.config import settings
 from app.core.ai_client import _ANTHROPIC_API_KEY

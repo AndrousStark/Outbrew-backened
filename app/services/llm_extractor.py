@@ -19,7 +19,10 @@ Use sparingly! Only for high-value targets where other methods fail.
 import logging
 from typing import Dict, Any, Optional, List, Type
 from pydantic import BaseModel, Field
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 import json
 
 from app.core.ai_client import _ANTHROPIC_API_KEY
