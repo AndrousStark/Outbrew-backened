@@ -51,7 +51,7 @@ Obtain a token via `/api/v1/auth/login` or `/api/v1/auth/login/json`.
     BASE_URL: str = "http://localhost:8000"  # Public base URL for absolute links (emails, unsubscribe)
 
     # CORS - stored as string, converted to list when accessed
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,https://metaminds.store"
+    CORS_ORIGINS: str = "http://localhost:3000"
 
     def get_cors_origins(self) -> List[str]:
         """Parse CORS origins from string to list"""
@@ -94,14 +94,14 @@ Obtain a token via `/api/v1/auth/login` or `/api/v1/auth/login/json`.
     REDIS_CACHE_TTL_LONG: int = 86400  # Long cache TTL (24 hours)
 
     # Email - Pragya
-    PRAGYA_EMAIL: str = "pragyapandey2709@gmail.com"
-    PRAGYA_PASSWORD: str = "bicu canf ksgd swzo"
-    PRAGYA_RESUME_PATH: str = "resumes/Pragya_Pandey_Resume.pdf"
+    PRAGYA_EMAIL: str = ""
+    PRAGYA_PASSWORD: str = ""
+    PRAGYA_RESUME_PATH: str = ""
 
     # Email - Aniruddh
-    ANIRUDDH_EMAIL: str = "atreyaniruddh@gmail.com"
-    ANIRUDDH_PASSWORD: str = "your-password-here"
-    ANIRUDDH_RESUME_PATH: str = "resumes/ANIRUDDH_ATREY.pdf"
+    ANIRUDDH_EMAIL: str = ""
+    ANIRUDDH_PASSWORD: str = ""
+    ANIRUDDH_RESUME_PATH: str = ""
 
     # SMTP
     SMTP_HOST: str = "smtp.gmail.com"
