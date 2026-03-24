@@ -25,10 +25,11 @@ services:
     env_file: .env
     environment:
       ENVIRONMENT: production
-      REDIS_URL: redis://@host.docker.internal:6379/2
+      REDIS_URL: redis://valkey:6379/2
       REDIS_ENABLED: "true"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - unjynx_default
     volumes:
       - ./storage:/app/storage
       - ./exports:/app/exports
@@ -53,3 +54,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  unjynx_default:
+    external: true
