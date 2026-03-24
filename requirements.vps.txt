@@ -59,3 +59,4 @@ redis[hiredis]==5.0.1
 
 # Monitoring
 py-cpuinfo==9.0.0
+psutil==5.9.7

@@ -7,9 +7,14 @@ Uses openpyxl for professional styling
 import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+except ImportError:
+    Workbook = None
+    Font = PatternFill = Alignment = Border = Side = None
+    get_column_letter = None
 from sqlalchemy.orm import Session
 
 from app.models.extraction import ExtractionJob, ExtractionResult

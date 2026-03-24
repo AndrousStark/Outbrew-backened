@@ -31,7 +31,10 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple, Set
 from dataclasses import dataclass, field
 import re
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # NLP libraries (install: pip install spacy transformers sentence-transformers)
 try:

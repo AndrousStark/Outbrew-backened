@@ -10,7 +10,10 @@ Provides real-time monitoring of:
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import Dict, Any
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 import platform
 from datetime import datetime, timezone
 
@@ -257,7 +260,10 @@ def system_health(current_candidate: Candidate = Depends(get_current_candidate))
         - Disk usage
         - Process info
     """
-    logger.info("📊 [Health] Checking system health")
+    logger.info("[Health] Checking system health")
+
+    if psutil is None:
+        return {"status": "unavailable", "message": "psutil not installed"}
 
     try:
         # CPU info

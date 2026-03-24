@@ -16,10 +16,25 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
-from fuzzywuzzy import fuzz, process
-import openpyxl
-import chardet
-import pandas as pd
+try:
+    from fuzzywuzzy import fuzz, process
+except ImportError:
+    from rapidfuzz import fuzz, process
+
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+
+try:
+    import chardet
+except ImportError:
+    chardet = None
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 logger = logging.getLogger(__name__)
 

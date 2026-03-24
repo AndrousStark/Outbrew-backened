@@ -52,7 +52,10 @@ from typing import Dict, List, Optional, Any, Tuple, Literal
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # Optional imports
 try:

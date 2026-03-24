@@ -843,7 +843,6 @@ async def send_bulk_emails(
 # ============= CSV/EXCEL IMPORT ENDPOINT =============
 
 from fastapi import UploadFile, File
-import pandas as pd
 import io
 
 
@@ -883,6 +882,11 @@ async def import_recruiters_csv(
     logger.info(f"[Applications] Importing CSV for candidate {candidate.id}")
 
     # Read file
+    try:
+        import pandas as pd
+    except ImportError:
+        raise HTTPException(status_code=501, detail="CSV import requires pandas. Not available on this server.")
+
     try:
         contents = await file.read()
 

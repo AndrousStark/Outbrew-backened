@@ -44,7 +44,10 @@ from collections import defaultdict
 from typing import List, Dict, Set, Tuple, Optional, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # Optional imports with graceful fallbacks
 try:

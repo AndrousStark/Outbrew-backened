@@ -14,9 +14,20 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
-import pdfplumber
-from docx import Document
-from fuzzywuzzy import fuzz
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
+try:
+    from docx import Document
+except ImportError:
+    Document = None
+
+try:
+    from fuzzywuzzy import fuzz
+except ImportError:
+    from rapidfuzz import fuzz
 import io
 
 logger = logging.getLogger(__name__)
