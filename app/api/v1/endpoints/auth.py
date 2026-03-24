@@ -35,7 +35,9 @@ from app.schemas.auth import (
     RegisterRequest,
     UserResponse,
     ChangePasswordRequest,
-    RefreshTokenRequest
+    RefreshTokenRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
 )
 from app.api.dependencies import get_current_candidate
 
@@ -336,3 +338,114 @@ def get_sse_ticket(
     """
     ticket = create_sse_ticket(current_candidate.username)
     return {"ticket": ticket}
+
+
+# ===================== FORGOT / RESET PASSWORD =====================
+
+import secrets
+import time
+
+# In-memory reset tokens: {token: {"email": ..., "expires": timestamp}}
+# For production, store in Redis or database
+_reset_tokens: dict = {}
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+def forgot_password(
+    request: Request,
+    data: ForgotPasswordRequest,
+    db: Session = Depends(get_database_session)
+):
+    """
+    Request a password reset.
+
+    Always returns success to prevent email enumeration.
+    If the email exists, a reset token is generated.
+    """
+    candidate = db.query(Candidate).filter(
+        Candidate.email == data.email,
+        Candidate.deleted_at.is_(None)
+    ).first()
+
+    if candidate:
+        # Generate reset token
+        token = secrets.token_urlsafe(32)
+        _reset_tokens[token] = {
+            "email": candidate.email,
+            "expires": time.time() + 3600,  # 1 hour
+        }
+        logger.info(f"Password reset token generated for: {candidate.email}")
+        log_audit_event("password_reset_requested", user_id=candidate.id,
+                       username=candidate.username)
+
+        # TODO: Send reset email with link containing the token
+        # For now, the token is logged (remove in production)
+        logger.info(f"Reset token for {candidate.email}: {token}")
+
+    # Always return success to prevent email enumeration
+    return {
+        "success": True,
+        "message": "If an account with that email exists, a password reset link has been sent."
+    }
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+def reset_password(
+    request: Request,
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_database_session)
+):
+    """
+    Reset password using a reset token.
+    """
+    # Validate token
+    token_data = _reset_tokens.get(data.token)
+    if not token_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    if time.time() > token_data["expires"]:
+        _reset_tokens.pop(data.token, None)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired. Please request a new one."
+        )
+
+    # Find user
+    candidate = db.query(Candidate).filter(
+        Candidate.email == token_data["email"],
+        Candidate.deleted_at.is_(None)
+    ).first()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account not found"
+        )
+
+    # Update password
+    candidate.hashed_password = get_password_hash(data.new_password)
+
+    try:
+        db.commit()
+        # Remove used token
+        _reset_tokens.pop(data.token, None)
+        log_audit_event("password_reset_completed", user_id=candidate.id,
+                       username=candidate.username)
+        logger.info(f"Password reset completed for: {candidate.username}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to reset password: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
+        )
+
+    return {
+        "success": True,
+        "message": "Password has been reset successfully. You can now log in with your new password."
+    }
