@@ -1,16 +1,15 @@
 version: "3.9"
 
 # =============================================================================
-# Outbrew Backend — VPS-Optimized Docker Compose
+# Outbrew Backend — VPS-Optimized Docker Compose (Neon PostgreSQL)
 # =============================================================================
-# API-only container. Connects to EXISTING PostgreSQL and Redis on the VPS.
-# Does NOT spin up its own database, cache, or nginx containers.
+# API-only container. Database hosted on Neon (serverless PostgreSQL).
+# Redis uses existing Valkey on the VPS.
 #
-# Prerequisites on VPS:
-#   - PostgreSQL running on 127.0.0.1:5432 (unjynx-postgres)
+# Prerequisites:
+#   - Neon database created (DATABASE_URL in .env)
 #   - Valkey/Redis running on 127.0.0.1:6379 (unjynx-valkey)
 #   - Nginx running on 80/443 (existing)
-#   - Database "outbrew" created in PostgreSQL
 #
 # Usage:
 #   docker compose -f docker-compose.vps.yml up -d
@@ -26,8 +25,7 @@ services:
     env_file: .env
     environment:
       ENVIRONMENT: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-outbrew_user}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB:-outbrew}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@host.docker.internal:6379/2
+      REDIS_URL: redis://@host.docker.internal:6379/2
       REDIS_ENABLED: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -41,7 +39,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     deploy:
       resources:
         limits:
