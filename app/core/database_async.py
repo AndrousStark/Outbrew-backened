@@ -48,6 +48,8 @@ def get_async_database_url() -> str:
     if settings.DATABASE_URL:
         # Convert standard postgresql:// to async postgresql+asyncpg://
         url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+        # asyncpg doesn't understand sslmode param — strip it (ssl is set in connect_args)
+        url = url.replace("?sslmode=require", "").replace("&sslmode=require", "")
         logger.info("[DATABASE-ASYNC] Using DATABASE_URL with asyncpg driver")
         return url
     elif settings.POSTGRES_SERVER and settings.POSTGRES_SERVER != "localhost":
