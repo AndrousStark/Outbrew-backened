@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Follow-Up AI Copilot Service - ULTRA Follow-Up System V2.0
 

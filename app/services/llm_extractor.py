@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Layer 4: LLM-Powered Data Extraction
 

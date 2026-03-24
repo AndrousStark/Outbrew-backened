@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Centralized AI Client for all AI features.
 
