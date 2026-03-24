@@ -34,6 +34,8 @@ Performance:
 Author: Claude Opus 4.5
 """
 
+from __future__ import annotations
+
 import asyncio
 import io
 import re
