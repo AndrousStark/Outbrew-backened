@@ -69,8 +69,8 @@ router = APIRouter()
 
 def _build_user_response(candidate: Candidate) -> dict:
     """Build UserResponse dict with plan + usage data."""
-    plan_tier = getattr(candidate, "plan_tier", None)
-    plan_value = plan_tier.value if plan_tier and hasattr(plan_tier, "value") else "free"
+    raw_plan = getattr(candidate, "plan_tier", None) or "free"
+    plan_value = raw_plan.value if hasattr(raw_plan, "value") else str(raw_plan).lower()
 
     return {
         "id": candidate.id,

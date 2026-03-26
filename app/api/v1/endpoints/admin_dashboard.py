@@ -220,7 +220,7 @@ def admin_set_plan(
         raise HTTPException(status_code=400, detail="Plan must be 'free' or 'pro'")
 
     old_plan = candidate.plan_tier
-    candidate.plan_tier = PlanTier.PRO if plan == "pro" else PlanTier.FREE
+    candidate.plan_tier = plan  # VARCHAR column, store as-is
 
     # Update limits based on plan
     if plan == "pro":

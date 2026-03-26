@@ -509,17 +509,16 @@ def require_plan(required_tier: str = "pro"):
         if current_candidate.role == UserRole.SUPER_ADMIN:
             return current_candidate
 
-        plan = getattr(current_candidate, "plan_tier", None)
-        if plan is None:
-            plan = PlanTier.FREE
+        raw_plan = getattr(current_candidate, "plan_tier", None) or "free"
+        plan = raw_plan.value if hasattr(raw_plan, "value") else str(raw_plan).lower()
 
-        if required_tier == "pro" and plan != PlanTier.PRO:
+        if required_tier == "pro" and plan != "pro":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "error": "upgrade_required",
                     "message": "This feature requires a Pro plan",
-                    "current_plan": str(plan.value) if hasattr(plan, "value") else str(plan),
+                    "current_plan": plan,
                     "required_plan": required_tier,
                 }
             )

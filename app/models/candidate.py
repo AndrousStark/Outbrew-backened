@@ -61,8 +61,8 @@ class Candidate(Base):
     # Status
     is_active = Column(Boolean, default=True)
 
-    # Plan & Usage
-    plan_tier = Column(Enum(PlanTier), default=PlanTier.FREE, nullable=False, server_default="free")
+    # Plan & Usage (VARCHAR to avoid Postgres ENUM migration issues)
+    plan_tier = Column(String(10), default="free", nullable=False, server_default="free")
     plan_started_at = Column(DateTime(timezone=True), nullable=True)
     plan_expires_at = Column(DateTime(timezone=True), nullable=True)
     monthly_email_limit = Column(Integer, default=100, server_default="100")
