@@ -51,6 +51,20 @@ def skip(name, reason=""):
 def rand_str(n=8):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
+def safe_login(username, password, retries=3):
+    """Login with retry on rate limit."""
+    for i in range(retries):
+        r = requests.post(f"{BASE}/auth/login/json", json={"username": username, "password": password})
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code == 429:
+            wait = 12 * (i + 1)
+            print(f"    (rate limited, waiting {wait}s...)")
+            time.sleep(wait)
+        else:
+            return None
+    return None
+
 print("=" * 72)
 print("  OUTBREW COMPREHENSIVE API TEST SUITE")
 print("=" * 72)
@@ -62,8 +76,9 @@ print("\n╔══ A. AUTH: REGISTER ══╗")
 
 # A1: Successful registration
 u1 = f"test_{rand_str()}"
+u1_pwd = "Test!Pass99"  # Track current password
 r = requests.post(f"{BASE}/auth/register", json={
-    "username": u1, "email": f"{u1}@gmail.com", "password": "Test!Pass99",
+    "username": u1, "email": f"{u1}@gmail.com", "password": u1_pwd,
     "full_name": "Test User", "email_account": f"{u1}s@gmail.com", "email_password": "p"
 })
 ok("A1: Register valid user", r.status_code == 201)
@@ -75,7 +90,7 @@ ok("A1: usage.monthly_email_limit=100", r.json().get("usage", {}).get("monthly_e
 
 # A2: Duplicate username
 r = requests.post(f"{BASE}/auth/register", json={
-    "username": u1, "email": f"dup_{u1}@gmail.com", "password": "Test!Pass99",
+    "username": u1, "email": f"dup_{u1}@gmail.com", "password": u1_pwd,
     "full_name": "Dup", "email_account": "d@gmail.com", "email_password": "p"
 })
 ok("A2: Duplicate username rejected", r.status_code == 400)
@@ -83,7 +98,7 @@ ok("A2: Error message", "already registered" in r.json().get("detail", "").lower
 
 # A3: Duplicate email
 r = requests.post(f"{BASE}/auth/register", json={
-    "username": f"dup_{rand_str()}", "email": f"{u1}@gmail.com", "password": "Test!Pass99",
+    "username": f"dup_{rand_str()}", "email": f"{u1}@gmail.com", "password": u1_pwd,
     "full_name": "Dup", "email_account": "d@gmail.com", "email_password": "p"
 })
 ok("A3: Duplicate email rejected", r.status_code == 400)
@@ -112,10 +127,11 @@ ok("A9: Empty body rejected", r.status_code == 422)
 # ═══════════════════════════════════════════════════════════════
 # A. AUTH — LOGIN
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)  # Wait for rate limit window (5/min = ~12s between tests)
 print("\n╔══ A. AUTH: LOGIN ══╗")
 
 # A10: Valid login
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 ok("A10: Login succeeds", r.status_code == 200)
 ok("A10: Has access_token", "access_token" in r.json())
 ok("A10: Has refresh_token", "refresh_token" in r.json())
@@ -157,10 +173,11 @@ ok("A16: /me with bad token = 401", r.status_code == 401)
 # ═══════════════════════════════════════════════════════════════
 # A. AUTH — LOGOUT
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)
 print("\n╔══ A. AUTH: LOGOUT ══╗")
 
 # Login fresh for logout test
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok2 = r.json()["access_token"]
 ref2 = r.json()["refresh_token"]
 h2 = {"Authorization": f"Bearer {tok2}"}
@@ -180,7 +197,7 @@ r = requests.post(f"{BASE}/auth/refresh", json={"refresh_token": ref2})
 ok("A19: Refresh token dead after logout", r.status_code == 401)
 
 # A20: Logout without body (just access token)
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok3 = r.json()["access_token"]
 r = requests.post(f"{BASE}/auth/logout", headers={"Authorization": f"Bearer {tok3}"}, json={})
 ok("A20: Logout without refresh_token", r.json().get("success") == True)
@@ -227,11 +244,12 @@ conn.close()
 # ═══════════════════════════════════════════════════════════════
 # C. SESSIONS
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)
 print("\n╔══ C. SESSION TRACKING ══╗")
 
-# Login fresh
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
-tok = r.json()["access_token"]
+# Login fresh (with rate limit retry)
+_ld = safe_login(u1, "Test!Pass99")
+tok = _ld["access_token"] if _ld else ""
 h = {"Authorization": f"Bearer {tok}"}
 
 # C1: List sessions
@@ -251,7 +269,7 @@ if sess:
     ok("C2: Session has last_active_at", "last_active_at" in s0)
 
 # C3: Create second session by logging in again
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok_b = r.json()["access_token"]
 h_b = {"Authorization": f"Bearer {tok_b}"}
 
@@ -280,9 +298,10 @@ ok("C6: Returns revoked count", "revoked_count" in r.json())
 # ═══════════════════════════════════════════════════════════════
 # D. TOKEN ROTATION
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)
 print("\n╔══ D. TOKEN ROTATION ══╗")
 
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok = r.json()["access_token"]
 ref = r.json()["refresh_token"]
 h = {"Authorization": f"Bearer {tok}"}
@@ -313,7 +332,7 @@ ok("D4: Invalid refresh = 401", r.status_code == 401)
 print("\n╔══ E. USAGE METERING ══╗")
 
 # Re-login
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok = r.json()["access_token"]
 h = {"Authorization": f"Bearer {tok}"}
 
@@ -350,6 +369,7 @@ ok("E4: Usage without auth = 401", r.status_code == 401)
 # ═══════════════════════════════════════════════════════════════
 # F. PASSWORD RESET
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)
 print("\n╔══ F. PASSWORD RESET (DB) ══╗")
 
 # F1: Forgot password
@@ -372,21 +392,23 @@ r = requests.post(f"{BASE}/auth/reset-password", json={"token": "invalid", "new_
 ok("F4: Invalid reset token = 400", r.status_code == 400)
 
 # F5: Change password
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok = r.json()["access_token"]
 h = {"Authorization": f"Bearer {tok}"}
 
 r = requests.post(f"{BASE}/auth/change-password", headers=h, json={
-    "current_password": "Test!Pass99", "new_password": "NewP@ss456"
+    "current_password": u1_pwd, "new_password": "NewP@ss456"
 })
+if r.status_code == 200:
+    u1_pwd = "NewP@ss456"  # Update tracked password
 ok("F5: Change password success", r.status_code == 200)
 
 # F6: Old password no longer works
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "Test!Pass99"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 ok("F6: Old password rejected", r.status_code == 401)
 
 # F7: New password works
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "NewP@ss456"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 ok("F7: New password works", r.status_code == 200)
 
 # F8: Change with wrong current password
@@ -399,13 +421,14 @@ ok("F8: Wrong current password = 400", r.status_code == 400)
 
 # F9: Change to weak password
 r = requests.post(f"{BASE}/auth/change-password", headers=h, json={
-    "current_password": "NewP@ss456", "new_password": "weak"
+    "current_password": u1_pwd, "new_password": "weak"
 })
 ok("F9: Weak new password rejected", r.status_code == 422)
 
 # ═══════════════════════════════════════════════════════════════
 # G. ADMIN (needs super_admin)
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)
 print("\n╔══ G. ADMIN DASHBOARD ══╗")
 
 r = requests.post(f"{BASE}/auth/login/json", json={"username": "stronguser", "password": "MyStr0ng!Pass"})
@@ -490,7 +513,7 @@ if r.status_code == 200:
     ok("G10: Has suspicious_ips", "suspicious_ips" in st)
 
     # G11: Non-admin access denied
-    r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "NewP@ss456"})
+    r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
     if r.status_code == 200:
         non_admin_h = {"Authorization": f"Bearer {r.json()['access_token']}"}
         r = requests.get(f"{BASE}/admin/dashboard", headers=non_admin_h)
@@ -521,14 +544,14 @@ ok("H2: XSS in name stored safely", r.status_code == 201)
 
 # H3: Very long username
 r = requests.post(f"{BASE}/auth/register", json={
-    "username": "a" * 200, "email": "long@gmail.com", "password": "Test!Pass99",
+    "username": "a" * 200, "email": "long@gmail.com", "password": u1_pwd,
     "full_name": "X", "email_account": "l@gmail.com", "email_password": "p"
 })
 ok("H3: Long username rejected", r.status_code == 422)
 
 # H4: Invalid email format
 r = requests.post(f"{BASE}/auth/register", json={
-    "username": rand_str(), "email": "not-an-email", "password": "Test!Pass99",
+    "username": rand_str(), "email": "not-an-email", "password": u1_pwd,
     "full_name": "X", "email_account": "x@gmail.com", "email_password": "p"
 })
 ok("H4: Invalid email rejected", r.status_code == 422)
@@ -546,9 +569,10 @@ ok("H6: Ready no auth", r.status_code == 200)
 # ═══════════════════════════════════════════════════════════════
 # I. CRUD OPERATIONS
 # ═══════════════════════════════════════════════════════════════
+time.sleep(13)
 print("\n╔══ I. CRUD OPERATIONS ══╗")
 
-r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": "NewP@ss456"})
+r = requests.post(f"{BASE}/auth/login/json", json={"username": u1, "password": u1_pwd})
 tok = r.json()["access_token"]
 h = {"Authorization": f"Bearer {tok}"}
 
