@@ -42,6 +42,7 @@ from app.api.v1.endpoints import (
     ml_analytics,  # ML Intelligence for Follow-Up (Reply Prediction, Send Time ML)
     email_tracking,  # Email open/click/bounce/unsubscribe tracking
     app_config,  # Public application configuration
+    admin_dashboard,  # Super Admin dashboard, audit logs, user plan management
 )
 
 api_router = APIRouter()
@@ -216,4 +217,9 @@ api_router.include_router(
 # Public Application Configuration (no auth required)
 api_router.include_router(
     app_config.router, prefix="/config", tags=["app-config"]
+)
+
+# Super Admin Dashboard (user management, audit logs, plan control)
+api_router.include_router(
+    admin_dashboard.router, prefix="/admin", tags=["admin-dashboard"]
 )

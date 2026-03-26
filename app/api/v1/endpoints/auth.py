@@ -45,7 +45,8 @@ from app.core.rate_limiter import (
     AUTH_REGISTER_LIMIT
 )
 from app.core.encryption import encrypt_value
-from app.core.logger import auth_logger as logger, log_audit_event
+from app.core.logger import auth_logger as logger
+from app.services.audit_service import log_audit, get_client_ip
 from app.models.candidate import Candidate, UserRole, PlanTier
 from app.schemas.auth import (
     Token,
@@ -107,13 +108,13 @@ def register(
     """Register a new user. Email verification token is generated."""
     # Check if username already exists
     if db.query(Candidate).filter(Candidate.username == register_data.username).first():
-        log_audit_event("registration_failed", username=register_data.username,
+        log_audit("registration_failed", username=register_data.username,
                        details={"reason": "username_exists"}, success=False)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
 
     # Check if email already exists
     if db.query(Candidate).filter(Candidate.email == register_data.email).first():
-        log_audit_event("registration_failed", username=register_data.username,
+        log_audit("registration_failed", username=register_data.username,
                        details={"reason": "email_exists"}, success=False)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
@@ -145,12 +146,12 @@ def register(
         db.add(candidate)
         db.commit()
         db.refresh(candidate)
-        log_audit_event("user_registered", user_id=candidate.id, username=candidate.username,
+        log_audit("user_registered", user_id=candidate.id, username=candidate.username,
                        details={"email": candidate.email, "role": candidate.role.value})
         logger.info(f"New user registered: {candidate.username} (ID: {candidate.id})")
     except Exception as e:
         db.rollback()
-        log_audit_event("registration_failed", username=register_data.username,
+        log_audit("registration_failed", username=register_data.username,
                        details={"reason": "database_error", "error": str(e)}, success=False)
         logger.error(f"Failed to register user {register_data.username}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user account")
@@ -163,7 +164,7 @@ def register(
 
 # ===================== LOGIN =====================
 
-def _do_login(candidate: Candidate, method: str) -> dict:
+def _do_login(candidate: Candidate, method: str, request: Request) -> dict:
     """Shared login logic for OAuth2 and JSON login."""
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -172,9 +173,11 @@ def _do_login(candidate: Candidate, method: str) -> dict:
     )
     refresh_token = create_refresh_token(data={"sub": candidate.username})
 
-    log_audit_event("login_success", user_id=candidate.id, username=candidate.username,
-                   details={"role": candidate.role.value, "method": method,
-                            "email_verified": getattr(candidate, "email_verified", False)})
+    log_audit("login_success", user_id=candidate.id, username=candidate.username,
+              ip_address=get_client_ip(request),
+              user_agent=request.headers.get("User-Agent", "")[:512],
+              details={"role": candidate.role.value, "method": method,
+                       "email_verified": getattr(candidate, "email_verified", False)})
     logger.info(f"User logged in ({method}): {candidate.username}")
 
     return {
@@ -185,20 +188,19 @@ def _do_login(candidate: Candidate, method: str) -> dict:
     }
 
 
-def _validate_login(candidate, username: str, method: str):
+def _validate_login(candidate, username: str, method: str, request: Request):
     """Shared validation for login endpoints."""
     if not candidate:
-        log_audit_event("login_failed", username=username,
-                       details={"reason": "invalid_credentials", "method": method}, success=False)
+        log_audit("login_failed", username=username,
+                  ip_address=get_client_ip(request),
+                  details={"reason": "invalid_credentials", "method": method}, success=False)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
 
     if not candidate.is_active:
-        log_audit_event("login_failed", user_id=candidate.id, username=candidate.username,
-                       details={"reason": "inactive_account", "method": method}, success=False)
+        log_audit("login_failed", user_id=candidate.id, username=candidate.username,
+                  ip_address=get_client_ip(request),
+                  details={"reason": "inactive_account", "method": method}, success=False)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user account")
-
-    # Email verification check — allow login but flag in response
-    # (frontend will show verification prompt)
 
 
 @router.post("/login", response_model=Token)
@@ -210,8 +212,8 @@ def login(
 ):
     """Login with username and password (OAuth2 form). Rate limited: 5/minute."""
     candidate = authenticate_candidate(db, form_data.username, form_data.password)
-    _validate_login(candidate, form_data.username, "oauth2")
-    return _do_login(candidate, "oauth2")
+    _validate_login(candidate, form_data.username, "oauth2", request)
+    return _do_login(candidate, "oauth2", request)
 
 
 @router.post("/login/json", response_model=Token)
@@ -223,8 +225,8 @@ def login_json(
 ):
     """Login with JSON payload. Rate limited: 5/minute."""
     candidate = authenticate_candidate(db, login_data.username, login_data.password)
-    _validate_login(candidate, login_data.username, "json")
-    return _do_login(candidate, "json")
+    _validate_login(candidate, login_data.username, "json", request)
+    return _do_login(candidate, "json", request)
 
 
 # ===================== LOGOUT =====================
@@ -253,7 +255,7 @@ def logout(
     if body and body.refresh_token:
         blacklisted_refresh = blacklist_token(body.refresh_token)
 
-    log_audit_event("logout", user_id=current_candidate.id, username=current_candidate.username,
+    log_audit("logout", user_id=current_candidate.id, username=current_candidate.username,
                    details={"access_blacklisted": blacklisted_access, "refresh_blacklisted": blacklisted_refresh})
     logger.info(f"User logged out: {current_candidate.username}")
 
@@ -331,7 +333,7 @@ def verify_email(
 
     try:
         db.commit()
-        log_audit_event("email_verified", user_id=candidate.id, username=candidate.username)
+        log_audit("email_verified", user_id=candidate.id, username=candidate.username)
         logger.info(f"Email verified for: {candidate.username}")
     except Exception as e:
         db.rollback()
@@ -380,7 +382,7 @@ def change_password(
 ):
     """Change current user's password. Rate limited: 3/hour."""
     if not verify_password(password_data.current_password, current_candidate.hashed_password):
-        log_audit_event("password_change_failed", user_id=current_candidate.id,
+        log_audit("password_change_failed", user_id=current_candidate.id,
                        username=current_candidate.username,
                        details={"reason": "invalid_current_password"}, success=False)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect current password")
@@ -390,11 +392,11 @@ def change_password(
     try:
         db.commit()
         db.refresh(current_candidate)
-        log_audit_event("password_changed", user_id=current_candidate.id, username=current_candidate.username)
+        log_audit("password_changed", user_id=current_candidate.id, username=current_candidate.username)
         logger.info(f"Password changed for user: {current_candidate.username}")
     except Exception as e:
         db.rollback()
-        log_audit_event("password_change_failed", user_id=current_candidate.id,
+        log_audit("password_change_failed", user_id=current_candidate.id,
                        username=current_candidate.username,
                        details={"reason": "database_error", "error": str(e)}, success=False)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update password")
@@ -433,7 +435,7 @@ def forgot_password(
     if candidate:
         token = secrets.token_urlsafe(32)
         _reset_tokens[token] = {"email": candidate.email, "expires": time.time() + 3600}
-        log_audit_event("password_reset_requested", user_id=candidate.id, username=candidate.username)
+        log_audit("password_reset_requested", user_id=candidate.id, username=candidate.username)
         # TODO: Send reset email with link containing the token
         logger.info(f"Password reset token generated for: {candidate.email}")
 
@@ -467,7 +469,7 @@ def reset_password(
     try:
         db.commit()
         _reset_tokens.pop(data.token, None)
-        log_audit_event("password_reset_completed", user_id=candidate.id, username=candidate.username)
+        log_audit("password_reset_completed", user_id=candidate.id, username=candidate.username)
         logger.info(f"Password reset completed for: {candidate.username}")
     except Exception as e:
         db.rollback()

@@ -137,6 +137,8 @@ def import_models():
     from app.models.notification_preference import NotificationPreference  # noqa: F401
     # Merge History
     from app.models.merge_history import MergeHistory  # noqa: F401
+    # Audit Logs
+    from app.models.audit_log import AuditLog  # noqa: F401
 
 
 def get_database_session() -> Generator[Session, None, None]:
