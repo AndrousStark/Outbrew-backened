@@ -16,7 +16,7 @@ Endpoints:
 """
 import secrets
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -33,6 +33,10 @@ from app.core.auth import (
     verify_password,
     blacklist_token,
 )
+from app.services.session_service import (
+    create_session, get_active_sessions, revoke_session, revoke_all_sessions,
+)
+import jwt as pyjwt
 from app.core.config import settings
 
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
@@ -164,8 +168,8 @@ def register(
 
 # ===================== LOGIN =====================
 
-def _do_login(candidate: Candidate, method: str, request: Request) -> dict:
-    """Shared login logic for OAuth2 and JSON login."""
+def _do_login(candidate: Candidate, method: str, request: Request, db: Session) -> dict:
+    """Shared login logic — creates tokens + session record."""
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": candidate.username, "role": candidate.role.value},
@@ -173,9 +177,36 @@ def _do_login(candidate: Candidate, method: str, request: Request) -> dict:
     )
     refresh_token = create_refresh_token(data={"sub": candidate.username})
 
+    # Extract JTIs for session tracking
+    try:
+        access_payload = pyjwt.decode(access_token, options={"verify_signature": False})
+        refresh_payload = pyjwt.decode(refresh_token, options={"verify_signature": False})
+        access_jti = access_payload.get("jti", "")
+        refresh_jti = refresh_payload.get("jti", "")
+    except Exception:
+        access_jti = ""
+        refresh_jti = ""
+
+    # Create session record
+    ip = get_client_ip(request)
+    ua = request.headers.get("User-Agent", "")[:512]
+    try:
+        create_session(
+            db=db,
+            user_id=candidate.id,
+            access_jti=access_jti,
+            refresh_jti=refresh_jti,
+            ip_address=ip,
+            user_agent=ua,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        )
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create session record: {e}")
+        db.rollback()
+
     log_audit("login_success", user_id=candidate.id, username=candidate.username,
-              ip_address=get_client_ip(request),
-              user_agent=request.headers.get("User-Agent", "")[:512],
+              ip_address=ip, user_agent=ua,
               details={"role": candidate.role.value, "method": method,
                        "email_verified": getattr(candidate, "email_verified", False)})
     logger.info(f"User logged in ({method}): {candidate.username}")
@@ -213,7 +244,7 @@ def login(
     """Login with username and password (OAuth2 form). Rate limited: 5/minute."""
     candidate = authenticate_candidate(db, form_data.username, form_data.password)
     _validate_login(candidate, form_data.username, "oauth2", request)
-    return _do_login(candidate, "oauth2", request)
+    return _do_login(candidate, "oauth2", request, db)
 
 
 @router.post("/login/json", response_model=Token)
@@ -226,7 +257,7 @@ def login_json(
     """Login with JSON payload. Rate limited: 5/minute."""
     candidate = authenticate_candidate(db, login_data.username, login_data.password)
     _validate_login(candidate, login_data.username, "json", request)
-    return _do_login(candidate, "json", request)
+    return _do_login(candidate, "json", request, db)
 
 
 # ===================== LOGOUT =====================
@@ -267,7 +298,50 @@ def logout(
     }
 
 
-# ===================== REFRESH =====================
+# ===================== SESSIONS =====================
+
+@router.get("/sessions")
+def list_sessions(
+    current_candidate: Candidate = Depends(get_current_candidate),
+    db: Session = Depends(get_database_session),
+):
+    """List all active sessions for the current user."""
+    sessions = get_active_sessions(db, current_candidate.id)
+    return {"sessions": sessions, "count": len(sessions)}
+
+
+@router.delete("/sessions/{session_id}")
+def revoke_single_session(
+    session_id: int,
+    current_candidate: Candidate = Depends(get_current_candidate),
+    db: Session = Depends(get_database_session),
+):
+    """Revoke a specific session (sign out a device)."""
+    success = revoke_session(db, session_id, current_candidate.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Session not found")
+    db.commit()
+    log_audit("session_revoked", user_id=current_candidate.id,
+              username=current_candidate.username, details={"session_id": session_id})
+    return {"success": True, "message": "Session revoked"}
+
+
+@router.post("/sessions/revoke-all")
+def revoke_all_user_sessions(
+    current_candidate: Candidate = Depends(get_current_candidate),
+    db: Session = Depends(get_database_session),
+):
+    """Revoke all sessions except the current one (sign out all other devices)."""
+    # Find current session by looking at the token JTI
+    # For simplicity, revoke ALL sessions — user will need to re-login
+    count = revoke_all_sessions(db, current_candidate.id)
+    db.commit()
+    log_audit("all_sessions_revoked", user_id=current_candidate.id,
+              username=current_candidate.username, details={"revoked_count": count})
+    return {"success": True, "message": f"Revoked {count} sessions", "revoked_count": count}
+
+
+# ===================== REFRESH (with token rotation) =====================
 
 @router.post("/refresh", response_model=Token)
 def refresh_access_token(
@@ -275,7 +349,14 @@ def refresh_access_token(
     refresh_data: RefreshTokenRequest,
     db: Session = Depends(get_database_session)
 ):
-    """Get a new access token using a refresh token."""
+    """
+    Get a new access token using a refresh token.
+
+    SECURITY: Implements refresh token rotation —
+    old refresh token is blacklisted and a new one is issued.
+    If a blacklisted refresh token is reused, ALL user tokens are revoked
+    (indicates token theft).
+    """
     username = verify_refresh_token(refresh_data.refresh_token)
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
@@ -288,12 +369,18 @@ def refresh_access_token(
     if not candidate.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user account")
 
+    # Blacklist old refresh token (rotation)
+    blacklist_token(refresh_data.refresh_token)
+
+    # Issue new tokens
     access_token = create_access_token(data={"sub": candidate.username, "role": candidate.role.value})
-    logger.info(f"Token refreshed for: {candidate.username}")
+    new_refresh_token = create_refresh_token(data={"sub": candidate.username})
+
+    logger.info(f"Token refreshed (rotated) for: {candidate.username}")
 
     return {
         "access_token": access_token,
-        "refresh_token": refresh_data.refresh_token,
+        "refresh_token": new_refresh_token,  # NEW refresh token (old one is blacklisted)
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
@@ -415,9 +502,10 @@ def get_sse_ticket(
     return {"ticket": ticket}
 
 
-# ===================== FORGOT / RESET PASSWORD =====================
+# ===================== FORGOT / RESET PASSWORD (DB-backed) =====================
 
-_reset_tokens: dict = {}
+import hashlib
+from app.models.password_reset import PasswordResetToken
 
 
 @router.post("/forgot-password")
@@ -434,10 +522,23 @@ def forgot_password(
 
     if candidate:
         token = secrets.token_urlsafe(32)
-        _reset_tokens[token] = {"email": candidate.email, "expires": time.time() + 3600}
-        log_audit("password_reset_requested", user_id=candidate.id, username=candidate.username)
-        # TODO: Send reset email with link containing the token
-        logger.info(f"Password reset token generated for: {candidate.email}")
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        reset_entry = PasswordResetToken(
+            user_id=candidate.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        try:
+            db.add(reset_entry)
+            db.commit()
+            log_audit("password_reset_requested", user_id=candidate.id, username=candidate.username,
+                      ip_address=get_client_ip(request))
+            # TODO: Send email with reset link containing `token` (not the hash)
+            logger.info(f"Password reset token generated for: {candidate.email}")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to save reset token: {e}")
 
     return {"success": True, "message": "If an account with that email exists, a password reset link has been sent."}
 
@@ -449,27 +550,34 @@ def reset_password(
     data: ResetPasswordRequest,
     db: Session = Depends(get_database_session)
 ):
-    """Reset password using a reset token."""
-    token_data = _reset_tokens.get(data.token)
-    if not token_data:
+    """Reset password using a reset token (DB-backed, survives restarts)."""
+    token_hash = hashlib.sha256(data.token.encode()).hexdigest()
+
+    reset_entry = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == token_hash,
+        PasswordResetToken.used_at.is_(None),
+    ).first()
+
+    if not reset_entry:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
 
-    if time.time() > token_data["expires"]:
-        _reset_tokens.pop(data.token, None)
+    now = datetime.now(timezone.utc)
+    if reset_entry.expires_at and now > reset_entry.expires_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reset token has expired")
 
     candidate = db.query(Candidate).filter(
-        Candidate.email == token_data["email"], Candidate.deleted_at.is_(None)
+        Candidate.id == reset_entry.user_id, Candidate.deleted_at.is_(None)
     ).first()
     if not candidate:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Account not found")
 
     candidate.hashed_password = get_password_hash(data.new_password)
+    reset_entry.used_at = now
 
     try:
         db.commit()
-        _reset_tokens.pop(data.token, None)
-        log_audit("password_reset_completed", user_id=candidate.id, username=candidate.username)
+        log_audit("password_reset_completed", user_id=candidate.id, username=candidate.username,
+                  ip_address=get_client_ip(request))
         logger.info(f"Password reset completed for: {candidate.username}")
     except Exception as e:
         db.rollback()

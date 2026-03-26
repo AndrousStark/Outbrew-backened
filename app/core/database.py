@@ -139,6 +139,10 @@ def import_models():
     from app.models.merge_history import MergeHistory  # noqa: F401
     # Audit Logs
     from app.models.audit_log import AuditLog  # noqa: F401
+    # User Sessions
+    from app.models.user_session import UserSession  # noqa: F401
+    # Password Reset Tokens
+    from app.models.password_reset import PasswordResetToken  # noqa: F401
 
 
 def get_database_session() -> Generator[Session, None, None]:
