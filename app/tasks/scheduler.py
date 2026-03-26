@@ -1264,6 +1264,30 @@ def start_scheduler() -> AsyncIOScheduler:
         replace_existing=True
     )
 
+    # === Monthly Usage Reset ===
+    @with_distributed_lock("monthly_usage_reset", timeout=120)
+    async def reset_usage_counters():
+        """Reset monthly email/campaign counters for users past their reset date."""
+        from app.core.database import SessionLocal
+        from app.services.usage_service import reset_monthly_usage
+        db = SessionLocal()
+        try:
+            result = reset_monthly_usage(db)
+            logger.info(f"[UsageReset] Reset {result['reset_count']} users")
+        except Exception as e:
+            logger.error(f"[UsageReset] Failed: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
+    scheduler.add_job(
+        reset_usage_counters,
+        CronTrigger(hour=0, minute=10),  # 00:10 UTC daily (checks 30-day window)
+        id="monthly_usage_reset",
+        name="Monthly Usage Counter Reset",
+        replace_existing=True
+    )
+
     scheduler.start()
 
     # Log scheduled jobs

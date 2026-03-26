@@ -347,7 +347,14 @@ async def start_extraction(
     background_tasks: BackgroundTasks,
     current_candidate: Candidate = Depends(get_current_candidate)
 ):
-    """Start a new extraction job"""
+    """Start a new extraction job (Pro plan required)"""
+    from app.services.usage_service import is_pro_feature
+    if not is_pro_feature(current_candidate):
+        raise HTTPException(status_code=403, detail={
+            "error": "upgrade_required",
+            "message": "MobiAdz Extraction requires a Pro plan",
+            "required_plan": "pro",
+        })
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 

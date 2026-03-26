@@ -559,6 +559,11 @@ def send_application_email(
     current_candidate: Candidate = Depends(get_current_candidate)
 ):
     """Send application email immediately"""
+    # Check usage limit
+    from app.services.usage_service import check_and_increment_email
+    allowed, msg = check_and_increment_email(db, current_candidate)
+    if not allowed:
+        raise HTTPException(status_code=403, detail={"error": "limit_reached", "message": msg})
 
     # Get application (scoped to current user)
     app = db.query(Application).filter(

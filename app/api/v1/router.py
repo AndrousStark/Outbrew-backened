@@ -43,6 +43,7 @@ from app.api.v1.endpoints import (
     email_tracking,  # Email open/click/bounce/unsubscribe tracking
     app_config,  # Public application configuration
     admin_dashboard,  # Super Admin dashboard, audit logs, user plan management
+    usage,  # Usage stats and plan limits
 )
 
 api_router = APIRouter()
@@ -217,6 +218,11 @@ api_router.include_router(
 # Public Application Configuration (no auth required)
 api_router.include_router(
     app_config.router, prefix="/config", tags=["app-config"]
+)
+
+# Usage Stats & Plan Limits
+api_router.include_router(
+    usage.router, prefix="/usage", tags=["usage"]
 )
 
 # Super Admin Dashboard (user management, audit logs, plan control)

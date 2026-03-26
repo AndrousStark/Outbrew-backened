@@ -354,8 +354,27 @@ async def create_campaign(
         400: Invalid data or group not found
         404: Group not found
     """
+    # Check campaign usage limit
+    from app.services.usage_service import check_and_increment_campaign
+    from app.core.database import SessionLocal
+    sync_db = SessionLocal()
+    try:
+        from app.models.candidate import Candidate as CandModel
+        cand = sync_db.query(CandModel).get(current_candidate.id)
+        if cand:
+            allowed, msg = check_and_increment_campaign(sync_db, cand)
+            if not allowed:
+                raise HTTPException(status_code=403, detail={"error": "limit_reached", "message": msg})
+            sync_db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        sync_db.rollback()
+    finally:
+        sync_db.close()
+
     logger.info(
-        f"➕ [CAMPAIGNS] Creating campaign '{campaign_data.campaign_name}' "
+        f"[CAMPAIGNS] Creating campaign '{campaign_data.campaign_name}' "
         f"for group {campaign_data.group_id}"
     )
 
