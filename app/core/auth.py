@@ -32,7 +32,7 @@ import threading
 
 from app.core.config import settings
 from app.core.database import get_database_session
-from app.models.candidate import Candidate, UserRole
+from app.models.candidate import Candidate, UserRole, PlanTier
 
 logger = logging.getLogger(__name__)
 
@@ -488,6 +488,89 @@ def has_permission(
         return False
 
     return True
+
+
+# ============= PLAN ENFORCEMENT =============
+
+
+def require_plan(required_tier: str = "pro"):
+    """
+    FastAPI dependency that requires a specific plan tier.
+
+    Usage:
+        @router.get("/pro-feature")
+        def pro_feature(candidate: Candidate = Depends(require_plan("pro"))):
+            ...
+    """
+    async def _check_plan(
+        current_candidate: Candidate = Depends(get_current_candidate)
+    ) -> Candidate:
+        # Super admins always have access
+        if current_candidate.role == UserRole.SUPER_ADMIN:
+            return current_candidate
+
+        plan = getattr(current_candidate, "plan_tier", None)
+        if plan is None:
+            plan = PlanTier.FREE
+
+        if required_tier == "pro" and plan != PlanTier.PRO:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "upgrade_required",
+                    "message": "This feature requires a Pro plan",
+                    "current_plan": str(plan.value) if hasattr(plan, "value") else str(plan),
+                    "required_plan": required_tier,
+                }
+            )
+        return current_candidate
+    return _check_plan
+
+
+def check_usage_limit(limit_type: str):
+    """
+    FastAPI dependency that checks usage limits.
+
+    limit_type: "email" | "campaign" | "recipient"
+    """
+    async def _check(
+        current_candidate: Candidate = Depends(get_current_candidate)
+    ) -> Candidate:
+        # Super admins bypass limits
+        if current_candidate.role == UserRole.SUPER_ADMIN:
+            return current_candidate
+
+        if limit_type == "email":
+            used = current_candidate.monthly_email_sent or 0
+            limit = current_candidate.monthly_email_limit or 100
+            label = "emails"
+        elif limit_type == "campaign":
+            used = current_candidate.monthly_campaigns_created or 0
+            limit = current_candidate.monthly_campaign_limit or 3
+            label = "campaigns"
+        elif limit_type == "recipient":
+            # Count from DB would be better, but use limit field for now
+            used = 0  # Checked at endpoint level
+            limit = current_candidate.monthly_recipient_limit or 100
+            label = "recipients"
+            return current_candidate
+        else:
+            return current_candidate
+
+        if used >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "limit_reached",
+                    "message": f"Monthly {label} limit reached ({used}/{limit})",
+                    "limit_type": limit_type,
+                    "used": used,
+                    "limit": limit,
+                    "upgrade_url": "/settings/plan",
+                }
+            )
+        return current_candidate
+    return _check
 
 
 # ============= SSE TICKET SYSTEM =============

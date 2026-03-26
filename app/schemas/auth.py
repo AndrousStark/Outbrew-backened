@@ -65,8 +65,17 @@ class RegisterRequest(BaseModel):
         return validate_password_strength(v)
 
 
+class UsageStats(BaseModel):
+    """Current usage statistics"""
+    monthly_email_sent: int = 0
+    monthly_email_limit: int = 100
+    monthly_campaigns_created: int = 0
+    monthly_campaign_limit: int = 3
+    monthly_recipient_limit: int = 100
+
+
 class UserResponse(BaseModel):
-    """User information response"""
+    """User information response — includes plan and usage"""
     id: int
     username: str
     email: str
@@ -75,6 +84,9 @@ class UserResponse(BaseModel):
     email_account: str
     title: Optional[str] = None
     is_active: bool
+    email_verified: bool = False
+    plan_tier: str = "free"
+    usage: Optional[UsageStats] = None
     total_applications_sent: int = 0
     total_responses_received: int = 0
     response_rate: float = 0.0
@@ -108,3 +120,8 @@ class ResetPasswordRequest(BaseModel):
     @classmethod
     def password_strength(cls, v: str) -> str:
         return validate_password_strength(v)
+
+
+class LogoutRequest(BaseModel):
+    """Logout request — optionally include refresh token to blacklist it too"""
+    refresh_token: Optional[str] = Field(None, description="Refresh token to also invalidate")

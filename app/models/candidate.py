@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
+class PlanTier(str, enum.Enum):
+    """Subscription plan tiers"""
+    FREE = "free"
+    PRO = "pro"
+
+
 class UserRole(str, enum.Enum):
     """User roles for different access levels"""
     PRAGYA = "pragya"
@@ -54,6 +60,22 @@ class Candidate(Base):
 
     # Status
     is_active = Column(Boolean, default=True)
+
+    # Plan & Usage
+    plan_tier = Column(Enum(PlanTier), default=PlanTier.FREE, nullable=False, server_default="free")
+    plan_started_at = Column(DateTime(timezone=True), nullable=True)
+    plan_expires_at = Column(DateTime(timezone=True), nullable=True)
+    monthly_email_limit = Column(Integer, default=100, server_default="100")
+    monthly_email_sent = Column(Integer, default=0, server_default="0")
+    monthly_campaign_limit = Column(Integer, default=3, server_default="3")
+    monthly_campaigns_created = Column(Integer, default=0, server_default="0")
+    monthly_recipient_limit = Column(Integer, default=100, server_default="100")
+    usage_reset_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Email Verification
+    email_verified = Column(Boolean, default=False, server_default="false")
+    email_verification_token = Column(String(64), nullable=True)
+    email_verification_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     # Token revocation: all tokens issued before this timestamp are invalid
     tokens_invalid_before = Column(DateTime(timezone=True), nullable=True)
